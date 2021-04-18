@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 
 from tensorflow.keras import Model
@@ -6,12 +7,15 @@ from tensorflow_addons.layers import SpectralNormalization
 from tensorflow.optimizers import Adam
 from tensorflow.keras import backend as K
 
+from dataset import IconGenerator
+
 
 class GAN:
     def __init__(self):
         self.generator = Generator()
         self.shape_discriminator = Discriminator(3 + 1)
         self.color_discriminator = Discriminator(3 + 3)
+        self.d_optimizer = Adam(learning_rate=2e-4, beta_1=0, beta_2=0.999)
 
         contour = Input(shape=(1, 64, 64))
         color_img = Input(shape=(3, 64, 64))
@@ -28,12 +32,11 @@ class GAN:
         self.compile()
 
     def compile(self, g_lr=5e-5, d_lr=2e-4):
-        d_optimizer = Adam(learning_rate=d_lr, beta_1=0, beta_2=0.999)
-        self.shape_discriminator.compile(optimizer=d_optimizer,
-                                         loss=self.discriminator_loss,
+        self.shape_discriminator.compile(optimizer=self.d_optimizer,
+                                         loss=self.shape_discriminator_loss,
                                          metrics=['accuracy'])
-        self.color_discriminator.compile(optimizer=d_optimizer,
-                                         loss=self.discriminator_loss,
+        self.color_discriminator.compile(optimizer=self.d_optimizer,
+                                         loss=self.color_discriminator_loss,
                                          metrics=['accuracy'])
         g_optimizer = Adam(learning_rate=g_lr, beta_1=0, beta_2=0.999)
         self.combined.compile(optimizer=g_optimizer,
@@ -43,83 +46,79 @@ class GAN:
 
     def train(self, epochs, batch_size=64, sample_interval=50):
         # Load the dataset
-        (X_train, _), (_, _) = mnist.load_data()
-
-        # Rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-
-        # Domain A and B (rotated)
-        X_A = X_train[:int(X_train.shape[0] / 2)]
-        X_B = scipy.ndimage.interpolation.rotate(X_train[int(X_train.shape[0] / 2):], 90, axes=(1, 2))
-
-        X_A = X_A.reshape(X_A.shape[0], self.img_dim)
-        X_B = X_B.reshape(X_B.shape[0], self.img_dim)
-
-        clip_value = 0.01
-        n_critic = 4
+        icon_generator = IconGenerator(batch_size)
 
         # Adversarial ground truths
         valid = -np.ones((batch_size, 1))
         fake = np.ones((batch_size, 1))
 
         for epoch in range(epochs):
-
-            # Train the discriminator for n_critic iterations
-            for _ in range(n_critic):
-
-                # ----------------------
-                #  Train Discriminators
-                # ----------------------
-
-                # Sample generator inputs
-                imgs_A = self.sample_generator_input(X_A, batch_size)
-                imgs_B = self.sample_generator_input(X_B, batch_size)
+            for i, inputs in enumerate(icon_generator):
+                if i > len(icon_generator):
+                    break
+                s1, s2, s3, contour = inputs
+                s1 = (s1.astype(np.float32) - 127.5) / 127.5
+                s2 = (s2.astype(np.float32) - 127.5) / 127.5
+                s3 = (s3.astype(np.float32) - 127.5) / 127.5
+                contour = (contour.astype(np.float32) - 127.5) / 127.5
 
                 # Translate images to their opposite domain
-                fake_B = self.G_AB.predict(imgs_A)
-                fake_A = self.G_BA.predict(imgs_B)
+                fake = self.generator([s1, s2])
+                fake_color = tf.concat([fake, s2], axis=1)
+                real_color = tf.concat([s1, s2], axis=1)
+                fake_shape = tf.concat([fake, contour], axis=1)
+                real_shape = tf.concat([s3, contour], axis=1)
 
                 # Train the discriminators
-                D_A_loss_real = self.D_A.train_on_batch(imgs_A, valid)
-                D_A_loss_fake = self.D_A.train_on_batch(fake_A, fake)
-
-                D_B_loss_real = self.D_B.train_on_batch(imgs_B, valid)
-                D_B_loss_fake = self.D_B.train_on_batch(fake_B, fake)
-
-                D_A_loss = 0.5 * np.add(D_A_loss_real, D_A_loss_fake)
-                D_B_loss = 0.5 * np.add(D_B_loss_real, D_B_loss_fake)
+                d_out_color_real = self.shape_discriminator(real_color)
+                d_out_color_fake = self.shape_discriminator(fake_color)
+                d_out_shape_real = self.shape_discriminator(real_shape)
+                d_out_shape_fake = self.shape_discriminator(fake_shape)
+                d_color_loss, d_color_grads = self.color_discriminator_loss(d_out_color_real, d_out_color_fake)
+                d_shape_loss, d_shape_grads = self.shape_discriminator_loss(d_out_shape_real, d_out_shape_fake)
+                self.d_optimizer.apply_gradients(zip(d_color_grads, self.color_discriminator.trainable_variables))
+                self.d_optimizer.apply_gradients(zip(d_shape_grads, self.shape_discriminator.trainable_variables))
 
                 # Clip discriminator weights
-                for d in [self.D_A, self.D_B]:
-                    for l in d.layers:
-                        weights = l.get_weights()
-                        weights = [np.clip(w, -clip_value, clip_value) for w in weights]
-                        l.set_weights(weights)
+                # for d in [self.color_discriminator, self.shape_discriminator]:
+                #     for l in d.layers:
+                #         weights = l.get_weights()
+                #         weights = [np.clip(w, -clip_value, clip_value) for w in weights]
+                #         l.set_weights(weights)
 
-            # ------------------
-            #  Train Generators
-            # ------------------
+                # ------------------
+                #  Train Generators
+                # ------------------
 
-            # Train the generators
-            g_loss = self.combined.train_on_batch([imgs_A, imgs_B], [valid, valid, imgs_A, imgs_B])
+                # Train the generators: contour, color_img, target_color_img, target_origin_img
+                g_loss = self.combined.train_on_batch([contour, s1, s2, s3], [valid, valid])
 
-            # Plot the progress
-            print("%d [D1 loss: %f] [D2 loss: %f] [G loss: %f]" \
-                  % (epoch, D_A_loss[0], D_B_loss[0], g_loss[0]))
 
-            # If at save interval => save generated image samples
-            if epoch % sample_interval == 0:
-                self.save_imgs(epoch, X_A, X_B)
+                # Plot the progress
+                print("%d [D1 loss: %f] [D2 loss: %f] [G loss: %f]" \
+                      % (epoch, d_color_loss[0], d_shape_loss[0], g_loss[0]))
+
+                # If at save interval => save generated image samples
+                if epoch % sample_interval == 0:
+                    self.save_images(epoch, fake_color, fake_shape)
 
     @classmethod
     def generator_loss(cls, _, prediction):
         return -prediction.mean()
 
-    @classmethod
-    def discriminator_loss(cls, real, prediction):
-        loss_real = K.relu(1.0 - real).mean()
-        loss_fake = K.relu(1.0 + prediction).mean()
-        return loss_real + loss_fake
+    def shape_discriminator_loss(self, real, fake):
+        with tf.GradientTape() as tape:
+            loss_real = K.relu(1.0 - real).mean()
+            loss_fake = K.relu(1.0 + fake).mean()
+            loss_value = loss_real + loss_fake
+        return loss_value, tape.gradient(loss_value, self.shape_discriminator.trainable_variables)
+
+    def color_discriminator_loss(self, real, fake):
+        with tf.GradientTape() as tape:
+            loss_real = K.relu(1.0 - real).mean()
+            loss_fake = K.relu(1.0 + fake).mean()
+            loss_value = loss_real + loss_fake
+        return loss_value, tape.gradient(loss_value, self.color_discriminator.trainable_variables)
 
 
 class Generator(tf.keras.Model):
