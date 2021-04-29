@@ -22,10 +22,7 @@ class Trainer:
                 if i > len(self.icon_generator):
                     break
                 s1, s2, s3, contour = inputs
-                s1 = (s1.astype(np.float32) - 127.5) / 127.5
-                s2 = (s2.astype(np.float32) - 127.5) / 127.5
-                s3 = (s3.astype(np.float32) - 127.5) / 127.5
-                contour = (contour.astype(np.float32) - 127.5) / 127.5
+                print(s1.shape, s2.shape, s3.shape, contour.shape)
 
                 # Translate images to their opposite domain
                 fake = self.gan.generator([s1, s2])
@@ -33,6 +30,7 @@ class Trainer:
                 real_color = tf.concat([s1, s2], axis=1)
                 fake_shape = tf.concat([fake, contour], axis=1)
                 real_shape = tf.concat([s3, contour], axis=1)
+                print(fake_color.shape, real_color.shape, fake_shape.shape, real_shape.shape)
 
                 # Train the discriminators
                 d_out_color_real = self.gan.shape_discriminator(real_color)

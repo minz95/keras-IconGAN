@@ -1,10 +1,5 @@
 import cv2
 import numpy as np
-import torch
-import torchvision
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
 
 def resize(img, height=300):
@@ -128,8 +123,5 @@ def detect_edges(img_path):
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     img_path = '../big_transfer/images/clock.jpg'
-    # find_item_2(img_path)
 
     detect_edges(img_path)
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
