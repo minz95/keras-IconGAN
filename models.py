@@ -20,7 +20,7 @@ class GAN:
         target_origin_img = Input(shape=(3, 64, 64))
         fake_img = self.generator([color_img, contour])
         valid_color = self.color_discriminator(tf.concat([fake_img, target_color_img], axis=1))
-        valid_shape = self.shape_discriminator(tf.concat([fake_img, target_origin_img], axis=1))
+        valid_shape = self.shape_discriminator(tf.concat([fake_img, contour], axis=1))
         self.combined = Model(
             inputs=[contour, color_img, target_color_img, target_origin_img],
             outputs=[valid_color, valid_shape]
@@ -43,21 +43,19 @@ class GAN:
 
     @classmethod
     def generator_loss(cls, _, prediction):
-        return -prediction.mean()
+        return -K.mean(prediction)
 
+    @tf.function
     def shape_discriminator_loss(self, real, fake):
-        with tf.GradientTape() as tape:
-            loss_real = K.relu(1.0 - real).mean()
-            loss_fake = K.relu(1.0 + fake).mean()
-            loss_value = loss_real + loss_fake
-        return loss_value, tape.gradient(loss_value, self.shape_discriminator.trainable_variables)
+        loss_real = K.mean(K.relu(1.0 - real))
+        loss_fake = K.mean(K.relu(1.0 + fake))
+        return loss_real + loss_fake
 
+    @tf.function
     def color_discriminator_loss(self, real, fake):
-        with tf.GradientTape() as tape:
-            loss_real = K.relu(1.0 - real).mean()
-            loss_fake = K.relu(1.0 + fake).mean()
-            loss_value = loss_real + loss_fake
-        return loss_value, tape.gradient(loss_value, self.color_discriminator.trainable_variables)
+        loss_real = K.mean(K.relu(1.0 - real))
+        loss_fake = K.mean(K.relu(1.0 + fake))
+        return loss_real + loss_fake
 
 
 class Generator(tf.keras.Model):
@@ -96,6 +94,7 @@ class Generator(tf.keras.Model):
     def call(self, input_tensor, **kwargs):
         color_tensor = input_tensor[0]
         shape_tensor = input_tensor[1]
+
         color_h = self.color_encoder(color_tensor)
         shape_h = self.shape_encoder(shape_tensor)
         h = tf.concat([color_h, shape_h], axis=1)
