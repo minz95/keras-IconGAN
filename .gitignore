@@ -116,3 +116,8 @@ dmypy.json
 # datasets
 datasets/*
 preprocessed_data/*
+
+# logs
+logs/*
+samples/*
+models/*

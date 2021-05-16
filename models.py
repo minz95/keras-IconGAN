@@ -2,27 +2,28 @@ import tensorflow as tf
 
 from tensorflow.keras import Model
 from tensorflow.keras import backend as K
-from tensorflow.keras.layers import Input, Conv2D, LeakyReLU, BatchNormalization, AvgPool2D, Conv2DTranspose
+from tensorflow.keras.layers import Input, Conv2D, LeakyReLU, \
+    BatchNormalization, AvgPool2D, Conv2DTranspose, ZeroPadding2D
 from tensorflow_addons.layers import SpectralNormalization
 from tensorflow.keras.optimizers import Adam
 
 
 class GAN:
     def __init__(self):
-        self.generator = Generator()
-        self.shape_discriminator = Discriminator(3 + 1)
-        self.color_discriminator = Discriminator(3 + 3)
+        self.generator = Generator(name='generator')
+        self.shape_discriminator = Discriminator(3 + 1, name='shape-discriminator')
+        self.color_discriminator = Discriminator(3 + 3, name='color-discriminator')
         self.d_optimizer = Adam(learning_rate=2e-4, beta_1=0, beta_2=0.999)
+        self.g_optimizer = Adam(learning_rate=5e-5, beta_1=0, beta_2=0.999)
 
         contour = Input(shape=(1, 64, 64))
         color_img = Input(shape=(3, 64, 64))
         target_color_img = Input(shape=(3, 64, 64))
-        target_origin_img = Input(shape=(3, 64, 64))
         fake_img = self.generator([color_img, contour])
         valid_color = self.color_discriminator(tf.concat([fake_img, target_color_img], axis=1))
         valid_shape = self.shape_discriminator(tf.concat([fake_img, contour], axis=1))
         self.combined = Model(
-            inputs=[contour, color_img, target_color_img, target_origin_img],
+            inputs=[contour, color_img, target_color_img],
             outputs=[valid_color, valid_shape]
         )
 
@@ -30,16 +31,17 @@ class GAN:
 
     def compile(self, g_lr=5e-5, d_lr=2e-4):
         self.shape_discriminator.compile(optimizer=self.d_optimizer,
-                                         loss=self.shape_discriminator_loss,
                                          metrics=['accuracy'])
         self.color_discriminator.compile(optimizer=self.d_optimizer,
                                          loss=self.color_discriminator_loss,
                                          metrics=['accuracy'])
-        g_optimizer = Adam(learning_rate=g_lr, beta_1=0, beta_2=0.999)
-        self.combined.compile(optimizer=g_optimizer,
+        self.shape_discriminator.trainable = False
+        self.color_discriminator.trainable = False
+        # self.generator.compile(optimizer=self.g_optimizer,
+        #                        loss=self.generator_loss)
+        self.combined.compile(optimizer=self.g_optimizer,
                               loss=[self.generator_loss, self.generator_loss],
-                              loss_weights=[1, 1],
-                              metrics=['accuracy'])
+                              loss_weights=[1, 1])
 
     @classmethod
     def generator_loss(cls, _, prediction):
@@ -59,8 +61,8 @@ class GAN:
 
 
 class Generator(tf.keras.Model):
-    def __init__(self, ch_color=3, ch_shape=1, img_dim=64, num_spectral_layer=3):
-        super(Generator, self).__init__(name='')
+    def __init__(self, ch_color=3, ch_shape=1, img_dim=64, num_spectral_layer=3, name='generator'):
+        super().__init__(name=name)
         self.ch_color = ch_color
         self.ch_shape = ch_shape
         self.ch_output = 3
@@ -82,19 +84,16 @@ class Generator(tf.keras.Model):
         self.model = self._build_model()
 
     def summary(self, **kwargs):
-        self.style_encoder.summary()
-        self.content_encoder.summary()
+        self.shape_encoder.summary()
+        self.color_encoder.summary()
         self.decoder.summary()
         self.model.summary()
-
-    def generator_loss(self, fake):
-        d_out = self.discriminator(fake)
-        return -d_out.mean()
 
     def call(self, input_tensor, **kwargs):
         color_tensor = input_tensor[0]
         shape_tensor = input_tensor[1]
 
+        tf.executing_eagerly()
         color_h = self.color_encoder(color_tensor)
         shape_h = self.shape_encoder(shape_tensor)
         h = tf.concat([color_h, shape_h], axis=1)
@@ -116,10 +115,12 @@ class Generator(tf.keras.Model):
     def _build_decoder(self):
         decoder_input = Input(shape=self.decoder_input_shape,
                               name="decoder_input")
+        padding_input = ZeroPadding2D(padding=1,
+                                      data_format='channels_first')(decoder_input)
         conv2a = Conv2D(self.dim * 4, 3, 1,
-                        padding='same',
+                        padding='valid',
                         data_format='channels_first')
-        sn2a = SpectralNormalization(conv2a)(decoder_input)
+        sn2a = SpectralNormalization(conv2a)(padding_input)
 
         rb1 = ResidualBlock(self.dim * 4, self.dim * 4)(sn2a)
         rb2 = ResidualBlock(self.dim * 4, self.dim * 4)(rb1)
@@ -131,8 +132,10 @@ class Generator(tf.keras.Model):
 
         bn = BatchNormalization(axis=1)(rb7)
         leaky_relu = LeakyReLU(0.2)(bn)
+        leaky_relu = ZeroPadding2D(padding=1,
+                                   data_format='channels_first')(leaky_relu)
         conv2b = Conv2D(self.ch_output, 3, 1,
-                        padding='same',
+                        padding='valid',
                         data_format='channels_first')
         sn2b = SpectralNormalization(conv2b)(leaky_relu)
         th = tf.nn.tanh(sn2b)
@@ -157,11 +160,12 @@ class Generator(tf.keras.Model):
     def _add_spectral_layer(self, layer_index, x):
         """SpectralNorm + BatchNorm2D +  LeakyReLu + AvgPool2D"""
         layer_number = layer_index + 1
+        x = ZeroPadding2D(padding=1, data_format='channels_first')(x)
         conv2d = Conv2D(
             filters=self.dim * 2**layer_index,
             kernel_size=3,
             strides=1,
-            padding="same",
+            padding="valid",
             data_format='channels_first',
             name=f"encoder_conv2d_{layer_number}"
         )
@@ -178,46 +182,56 @@ class Generator(tf.keras.Model):
 
 
 class Discriminator(tf.keras.Model):
-    def __init__(self, ch_input):
-        super(Discriminator, self).__init__(name='')
+    def __init__(self, ch_input, name='discriminator'):
+        super().__init__(name=name)
         self.base_dim = 64
         self.conv2a = Conv2D(self.base_dim * 1, kernel_size=3, strides=2,
-                             padding='same', data_format='channels_first')
+                             padding='valid', data_format='channels_first')
         self.sn2a = SpectralNormalization(self.conv2a)
         self.leaky_relu1 = LeakyReLU(0.2)
 
         self.conv2b = Conv2D(self.base_dim * 2, kernel_size=3, strides=2,
-                             padding='same', data_format='channels_first')
+                             padding='valid', data_format='channels_first')
         self.sn2b = SpectralNormalization(self.conv2b)
         self.leaky_relu2 = LeakyReLU(0.2)
 
         self.conv2c = Conv2D(self.base_dim * 4, kernel_size=3, strides=2,
-                             padding='same', data_format='channels_first')
+                             padding='valid', data_format='channels_first')
         self.sn2c = SpectralNormalization(self.conv2c)
         self.leaky_relu3 = LeakyReLU(0.2)
 
         self.conv2d = Conv2D(self.base_dim * 8, kernel_size=3, strides=1,
-                             padding='same', data_format='channels_first')
+                             padding='valid', data_format='channels_first')
         self.sn2d = SpectralNormalization(self.conv2d)
         self.leaky_relu4 = LeakyReLU(0.2)
 
         self.conv2e = Conv2D(1, kernel_size=3, strides=1,
-                             padding='same', data_format='channels_first')
+                             padding='valid', data_format='channels_first')
         self.sn2e = SpectralNormalization(self.conv2e)
 
     def call(self, input_tensor, **kwargs):
+        input_tensor = ZeroPadding2D(padding=1,
+                                     data_format='channels_first')(input_tensor)
         sn2a = self.sn2a(input_tensor)
         leaky_relu1 = self.leaky_relu1(sn2a)
 
+        leaky_relu1 = ZeroPadding2D(padding=1,
+                                    data_format='channels_first')(leaky_relu1)
         sn2b = self.sn2b(leaky_relu1)
         leaky_relu2 = self.leaky_relu2(sn2b)
 
+        leaky_relu2 = ZeroPadding2D(padding=1,
+                                    data_format='channels_first')(leaky_relu2)
         sn2c = self.sn2c(leaky_relu2)
         leaky_relu3 = self.leaky_relu3(sn2c)
 
+        leaky_relu3 = ZeroPadding2D(padding=1,
+                                    data_format='channels_first')(leaky_relu3)
         sn2d = self.sn2d(leaky_relu3)
         leaky_relu4 = self.leaky_relu4(sn2d)
 
+        leaky_relu4 = ZeroPadding2D(padding=1,
+                                    data_format='channels_first')(leaky_relu4)
         sn2e = self.sn2e(leaky_relu4)
 
         return sn2e
@@ -225,15 +239,15 @@ class Discriminator(tf.keras.Model):
 
 class ResidualBlock(tf.keras.Model):
     def __init__(self, ch_in, ch_out, sample='none', training=False):
-        super(ResidualBlock, self).__init__(name='')
+        super().__init__(name='')
         self.training = training
 
         self.conv2a = Conv2D(ch_out, kernel_size=3, strides=1,
-                             padding='same', data_format='channels_first')
+                             padding='valid', data_format='channels_first')
         self.sn2a = SpectralNormalization(self.conv2a)
 
         self.conv2b = Conv2D(ch_out, kernel_size=3, strides=1,
-                             padding='same', data_format='channels_first')
+                             padding='valid', data_format='channels_first')
         self.sn2b = SpectralNormalization(self.conv2b)
 
         self.conv2c = Conv2D(ch_out, kernel_size=1, strides=1,
@@ -259,9 +273,11 @@ class ResidualBlock(tf.keras.Model):
             h = self.sample(h)
             x = self.sample(x)
 
+        h = ZeroPadding2D(padding=1, data_format='channels_first')(h)
         h = self.sn2a(h)
         h = self.leaky_relu(self.bn2(h))
 
+        h = ZeroPadding2D(padding=1, data_format='channels_first')(h)
         h = self.sn2b(h)
 
         if self.sn2c:

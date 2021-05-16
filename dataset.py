@@ -52,10 +52,6 @@ class IconGenerator(Sequence):
     def __len__(self):
         return int(np.floor(len(self.contour_list) / self.batch_size))
 
-    @classmethod
-    def img_normalization(cls, img):
-        return (img - 0.5) / 0.5
-
     def style_img_processing(self, img):
         _, _, h, w = self.get_random_size(img, self.scale, self.ratio)
         h, w = 64, 64
@@ -145,12 +141,6 @@ class IconGenerator(Sequence):
             s1 = self.style_img_processing(s1)
             s2 = self.style_img_processing(s2)
             s3, contour = self.paired_img_processing(s3, contour)
-
-            s1 = self.img_normalization(s1)
-            s2 = self.img_normalization(s2)
-            s3 = self.img_normalization(s3)
-            contour = self.img_normalization(contour)
-
             s1 = np.moveaxis(s1, -1, 0)
             s2 = np.moveaxis(s2, -1, 0)
             s3 = np.moveaxis(s3, -1, 0)
