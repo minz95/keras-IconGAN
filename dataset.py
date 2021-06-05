@@ -12,17 +12,22 @@ from tensorflow.keras.preprocessing.image import img_to_array
 
 
 class IconGenerator(Sequence):
-    def __init__(self, batch_size, dim=128, pad_ratio=8, data_path='./preprocessed_data', shuffle=True):
+    def __init__(self, batch_size, dim=64, pad_ratio=8, data_path='./preprocessed_data', shuffle=True):
+        self.img_size = (64, 64)
         self.data_path = data_path
         self.contour_dir = os.path.join(self.data_path, 'contour')
         self.img_dir = os.path.join(self.data_path, 'img')
 
         self.pad_ratio = pad_ratio
+        self.min_crop_area = ((pad_ratio + 1) / (pad_ratio + 2)) ** 2
+        self.crop_size = int(64 * self.min_crop_area)
+        print(self.crop_size)
+
         print(os.walk(self.contour_dir))
         _, _, self.contour_list = next(os.walk(self.contour_dir))
         _, _, self.image_list = next(os.walk(self.img_dir))
 
-        with open(os.path.join(self.data_path, 'labels'), 'rb') as fp:
+        with open(os.path.join(self.data_path, 'labels.pickle'), 'rb') as fp:
             labels = pickle.load(fp)
         if labels:
             self.labels = labels['labels']
@@ -53,18 +58,27 @@ class IconGenerator(Sequence):
         return int(np.floor(len(self.contour_list) / self.batch_size))
 
     def style_img_processing(self, img):
-        _, _, h, w = self.get_random_size(img, self.scale, self.ratio)
-        h, w = 64, 64
-        img = tf.image.resize(img, size=(h, w), method=tf.image.ResizeMethod.BICUBIC)
-        img = tf.image.random_flip_left_right(img, seed=None)
-        img = tf.image.random_flip_up_down(img, seed=None)
+        prev_size = img.shape
+        crop_size = [int(self.min_crop_area * prev_size[0]), prev_size[1], 3]
+        img = tf.image.random_crop(img, crop_size)
+        img = tf.image.resize(img, size=self.img_size, method=tf.image.ResizeMethod.BICUBIC)
+
+        p = random.random()
+        if p < 0.5:
+            img = tf.image.random_flip_left_right(img, seed=None)
+
+        p = random.random()
+        if p < 0.5:
+            img = tf.image.random_flip_up_down(img, seed=None)
         return img
 
     def paired_img_processing(self, img1, img2):
-        _, _, h, w = self.get_random_size(img1, self.scale, self.ratio)
-        h, w = 64, 64
-        img1 = tf.image.resize(img1, size=(h, w), method=tf.image.ResizeMethod.BICUBIC)
-        img2 = tf.image.resize(img2, size=(h, w), method=tf.image.ResizeMethod.BICUBIC)
+        prev_size1 = img1.shape
+        crop_size = [int(self.min_crop_area * prev_size1[0]), prev_size1[1], 3]
+        img1 = tf.image.random_crop(img1, crop_size)
+        img2 = tf.image.random_crop(img2, crop_size)
+        img1 = tf.image.resize(img1, size=self.img_size, method=tf.image.ResizeMethod.BICUBIC)
+        img2 = tf.image.resize(img2, size=self.img_size, method=tf.image.ResizeMethod.BICUBIC)
 
         p = random.random()
         if p < 0.5:
@@ -116,14 +130,14 @@ class IconGenerator(Sequence):
         contour_arr = []
         for i in range(self.batch_size):
 
-            label = self.labels[index * 60 + i]
+            label = self.labels[index * self.batch_size + i]
             group = self.groups[label]
 
             # pick the icon in the same color cluster
             idx2 = random.choice(group)
             idx3 = random.choice(self.indexes)
 
-            s1 = Image.open(self.icon_paths[index]).convert('RGB')
+            s1 = Image.open(self.icon_paths[index * self.batch_size + i]).convert('RGB')
             s2 = Image.open(self.icon_paths[idx2]).convert('RGB')
             s3 = Image.open(self.icon_paths[idx3]).convert('RGB')
             contour = Image.open(self.contour_paths[idx3]).convert('RGB')
@@ -141,14 +155,14 @@ class IconGenerator(Sequence):
             s1 = self.style_img_processing(s1)
             s2 = self.style_img_processing(s2)
             s3, contour = self.paired_img_processing(s3, contour)
-            s1 = np.moveaxis(s1, -1, 0)
-            s2 = np.moveaxis(s2, -1, 0)
-            s3 = np.moveaxis(s3, -1, 0)
-            contour = np.moveaxis(contour, -1, 0)
+            # s1 = np.moveaxis(s1, -1, 0)
+            # s2 = np.moveaxis(s2, -1, 0)
+            # s3 = np.moveaxis(s3, -1, 0)
+            # contour = np.moveaxis(contour, -1, 0)
 
             s1_arr.append(s1)
             s2_arr.append(s2)
             s3_arr.append(s3)
-            contour_arr.append(contour[:1, :, :])
+            contour_arr.append(contour[:, :, :1])
 
         return np.array(s1_arr), np.array(s2_arr), np.array(s3_arr), np.array(contour_arr)

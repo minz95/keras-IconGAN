@@ -121,3 +121,9 @@ preprocessed_data/*
 logs/*
 samples/*
 models/*
+
+# pycharm
+.idea/
+
+.idea/itemGAN.iml
+.idea/misc.xml

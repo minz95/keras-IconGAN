@@ -49,10 +49,10 @@ class Trainer:
 
                 # Translate images to their opposite domain
                 fake = self.gan.generator([s1, contour])
-                fake_color = tf.concat([fake, s2], axis=1)
-                real_color = tf.concat([s1, s2], axis=1)
-                fake_shape = tf.concat([fake, contour], axis=1)
-                real_shape = tf.concat([s3, contour], axis=1)
+                fake_color = tf.concat([fake, s2], axis=-1)
+                real_color = tf.concat([s1, s2], axis=-1)
+                fake_shape = tf.concat([fake, contour], axis=-1)
+                real_shape = tf.concat([s3, contour], axis=-1)
                 # print(fake_color.shape, real_color.shape, fake_shape.shape, real_shape.shape)
 
                 # Train the discriminators
@@ -91,8 +91,8 @@ class Trainer:
                 # Train the generators: contour, color_img, target_color_img, target_origin_img
                 with tf.GradientTape() as tape:
                     fake = self.gan.generator([s1, contour])
-                    fake_color = tf.concat([fake, s2], axis=1)
-                    fake_shape = tf.concat([fake, contour], axis=1)
+                    fake_color = tf.concat([fake, s2], axis=-1)
+                    fake_shape = tf.concat([fake, contour], axis=-1)
 
                     d_out_color_fake = self.gan.color_discriminator(fake_color)
                     d_out_shape_fake = self.gan.shape_discriminator(fake_shape)
@@ -119,27 +119,28 @@ class Trainer:
                 # If at save interval => save generated image samples
                 if step % sample_interval == 0:
                     # self.save_images(epoch, fake_color, fake_shape)
-                    # self.save_image(step, 'input-img', s1)
-                    # self.save_image(step, 'same-color-img', s2)
-                    # self.save_image(step, 'origin-of-contour', s3)
-                    # self.save_image(step, 'contour', contour)
-                    fake = tf.transpose(fake, (0, 3, 2, 1))
-                    with summary_writer.as_default():
-                        tf.summary.image(f'{step}-fake', fake, max_outputs=64, step=step)
-                    # self.save_image(step, 'fake', fake)
-                    # self.save_model(step)
+                    print(f'Save samples at step: {step}')
+                    self.save_image(step, 'input-img', s1)
+                    self.save_image(step, 'same-color-img', s2)
+                    self.save_image(step, 'origin-of-contour', s3)
+                    self.save_image(step, 'contour', contour)
+                    # fake = tf.transpose(fake, (0, 3, 2, 1))
+                    # with summary_writer.as_default():
+                    #     tf.summary.image(f'{step}-fake', fake, max_outputs=64, step=step)
+                    self.save_image(step, 'fake', fake)
+                    self.save_model(step)
 
     def save_image(self, step, name, arr):
-        arr = np.moveaxis(arr, 1, -1)
-        arr = tf.transpose(arr, (0, 3, 2, 1))
+        # arr = np.moveaxis(arr, 1, -1)
+        # arr = tf.transpose(arr, (0, 3, 2, 1))
         arr = np.clip((arr + 1) / 2.0 * 255.0, 0.0, 255.0)
         arr = arr.astype(np.uint8)
+        arr = arr[0]
         if arr.shape[2] == 1:
             arr = arr.squeeze()
         image = Image.fromarray(arr)
         # plt.imshow(arr)
         # plt.show()
-        print(f'Save samples at step: {step}')
         image.save(f'samples/{step}-{name}.png')
 
     def save_model(self, epoch):
