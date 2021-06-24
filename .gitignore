@@ -120,6 +120,7 @@ preprocessed_data/*
 # logs
 logs/*
 samples/*
+samples2/*
 models/*
 
 # pycharm

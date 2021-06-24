@@ -60,7 +60,7 @@ class IconGenerator(Sequence):
     def style_img_processing(self, img):
         prev_size = img.shape
         crop_size = [int(self.min_crop_area * prev_size[0]), prev_size[1], 3]
-        img = tf.image.random_crop(img, crop_size)
+        img = tf.image.random_crop(img, size=crop_size)
         img = tf.image.resize(img, size=self.img_size, method=tf.image.ResizeMethod.BICUBIC)
 
         p = random.random()
@@ -75,11 +75,12 @@ class IconGenerator(Sequence):
     def paired_img_processing(self, img1, img2):
         prev_size1 = img1.shape
         crop_size = [int(self.min_crop_area * prev_size1[0]), prev_size1[1], 3]
-        img1 = tf.image.random_crop(img1, crop_size)
-        img2 = tf.image.random_crop(img2, crop_size)
-        img1 = tf.image.resize(img1, size=self.img_size, method=tf.image.ResizeMethod.BICUBIC)
-        img2 = tf.image.resize(img2, size=self.img_size, method=tf.image.ResizeMethod.BICUBIC)
+        seed = random.randint(1, 1000)
 
+        img1 = tf.image.stateless_random_crop(img1, size=crop_size, seed=[seed, seed])
+        img2 = tf.image.stateless_random_crop(img2, size=crop_size, seed=[seed, seed])
+        img1 = tf.image.resize(img1, self.img_size, method=tf.image.ResizeMethod.BICUBIC)
+        img2 = tf.image.resize(img2, self.img_size, method=tf.image.ResizeMethod.BICUBIC)
         p = random.random()
         if p < 0.5:
             img1 = tf.image.flip_left_right(img1)
@@ -142,15 +143,20 @@ class IconGenerator(Sequence):
             s3 = Image.open(self.icon_paths[idx3]).convert('RGB')
             contour = Image.open(self.contour_paths[idx3]).convert('RGB')
 
-            s1 = img_to_array(s1)
-            s2 = img_to_array(s2)
-            s3 = img_to_array(s3)
-            contour = img_to_array(contour)
+            s1 = img_to_array(s1) / 255.0
+            s2 = img_to_array(s2) / 255.0
+            s3 = img_to_array(s3) / 255.0
+            contour = img_to_array(contour) / 255.0
 
-            s1 = (s1.astype(np.float32) - 127.5) / 127.5
-            s2 = (s2.astype(np.float32) - 127.5) / 127.5
-            s3 = (s3.astype(np.float32) - 127.5) / 127.5
-            contour = (contour.astype(np.float32) - 127.5) / 127.5
+            s1 = (s1 - 0.5) / 0.5
+            s2 = (s2 - 0.5) / 0.5
+            s3 = (s3 - 0.5) / 0.5
+            contour = (contour - 0.5) / 0.5
+
+            # s1 = (s1.astype(np.float32) - 127.5) / 127.5
+            # s2 = (s2.astype(np.float32) - 127.5) / 127.5
+            # s3 = (s3.astype(np.float32) - 127.5) / 127.5
+            # contour = (contour.astype(np.float32) - 127.5) / 127.5
 
             s1 = self.style_img_processing(s1)
             s2 = self.style_img_processing(s2)
