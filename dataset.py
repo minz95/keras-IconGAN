@@ -40,6 +40,7 @@ class IconGenerator(Sequence):
         self.dim = dim
         self.shuffle = shuffle
 
+        self.icon_indices = np.arange(len(self.contour_list))
         self.indexes = np.arange(len(self.contour_list))
         self.size = len(self.indexes)
         self.icon_paths = [os.path.join(self.img_dir, '{:06d}.png'.format(i)) for i in self.indexes]
@@ -52,17 +53,19 @@ class IconGenerator(Sequence):
 
     def on_epoch_end(self):
         if self.shuffle:
+            np.random.shuffle(self.icon_indices)
             np.random.shuffle(self.indexes)
 
     def __len__(self):
-        return int(np.floor(len(self.contour_list) / self.batch_size))
+        return math.floor(len(self.indexes) / self.batch_size)
 
     def style_img_processing(self, img):
-        prev_size = img.shape
-        crop_size = [int(self.min_crop_area * prev_size[0]), prev_size[1], 3]
-        img = tf.image.random_crop(img, size=crop_size)
-        img = tf.image.resize(img, size=self.img_size, method=tf.image.ResizeMethod.BICUBIC)
-
+        h, w, _ = img.shape
+        i, j, ch, cw = self.get_random_size(img, self.scale, self.ratio)
+        img = tf.image.crop_to_bounding_box(img, i, j, ch, cw)
+        # boxes = [[i / h, j / w, (i + ch) / h, (j + cw) / w]]
+        # img = tf.image.crop_and_resize([img], boxes, [0], self.img_size, method='bilinear')[0]
+        img = tf.image.resize(img, self.img_size)
         p = random.random()
         if p < 0.5:
             img = tf.image.random_flip_left_right(img, seed=None)
@@ -73,14 +76,14 @@ class IconGenerator(Sequence):
         return img
 
     def paired_img_processing(self, img1, img2):
-        prev_size1 = img1.shape
-        crop_size = [int(self.min_crop_area * prev_size1[0]), prev_size1[1], 3]
-        seed = random.randint(1, 1000)
-
-        img1 = tf.image.stateless_random_crop(img1, size=crop_size, seed=[seed, seed])
-        img2 = tf.image.stateless_random_crop(img2, size=crop_size, seed=[seed, seed])
-        img1 = tf.image.resize(img1, self.img_size, method=tf.image.ResizeMethod.BICUBIC)
-        img2 = tf.image.resize(img2, self.img_size, method=tf.image.ResizeMethod.BICUBIC)
+        h, w, _ = img1.shape
+        i, j, ch, cw = self.get_random_size(img1, self.scale, self.ratio)
+        img1 = tf.image.crop_to_bounding_box(img1, i, j, ch, cw)
+        img2 = tf.image.crop_to_bounding_box(img2, i, j, ch, cw)
+        # boxes = [[i / h, j / w, (i + ch) / h, (j + cw) / w], [i / h, j / w, (i + ch) / h, (j + cw) / w]]
+        # img1, img2 = tf.image.crop_and_resize([img1, img2], boxes, [0, 1], self.img_size, method='bilinear')
+        img1 = tf.image.resize(img1, self.img_size)
+        img2 = tf.image.resize(img2, self.img_size)
         p = random.random()
         if p < 0.5:
             img1 = tf.image.flip_left_right(img1)
@@ -130,15 +133,15 @@ class IconGenerator(Sequence):
         s3_arr = []
         contour_arr = []
         for i in range(self.batch_size):
-
-            label = self.labels[index * self.batch_size + i]
+            label_index = self.icon_indices[index * self.batch_size + i]
+            label = self.labels[label_index]
             group = self.groups[label]
 
             # pick the icon in the same color cluster
             idx2 = random.choice(group)
             idx3 = random.choice(self.indexes)
 
-            s1 = Image.open(self.icon_paths[index * self.batch_size + i]).convert('RGB')
+            s1 = Image.open(self.icon_paths[label_index]).convert('RGB')
             s2 = Image.open(self.icon_paths[idx2]).convert('RGB')
             s3 = Image.open(self.icon_paths[idx3]).convert('RGB')
             contour = Image.open(self.contour_paths[idx3]).convert('RGB')
@@ -153,18 +156,9 @@ class IconGenerator(Sequence):
             s3 = (s3 - 0.5) / 0.5
             contour = (contour - 0.5) / 0.5
 
-            # s1 = (s1.astype(np.float32) - 127.5) / 127.5
-            # s2 = (s2.astype(np.float32) - 127.5) / 127.5
-            # s3 = (s3.astype(np.float32) - 127.5) / 127.5
-            # contour = (contour.astype(np.float32) - 127.5) / 127.5
-
             s1 = self.style_img_processing(s1)
             s2 = self.style_img_processing(s2)
             s3, contour = self.paired_img_processing(s3, contour)
-            # s1 = np.moveaxis(s1, -1, 0)
-            # s2 = np.moveaxis(s2, -1, 0)
-            # s3 = np.moveaxis(s3, -1, 0)
-            # contour = np.moveaxis(contour, -1, 0)
 
             s1_arr.append(s1)
             s2_arr.append(s2)

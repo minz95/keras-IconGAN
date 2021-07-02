@@ -23,9 +23,9 @@ if gpus:
         print(e)
 
 
-class itemGAN:
+class ItemGAN:
     def __init__(self):
-        self.batch_size = 32
+        self.batch_size = 64
         self.img_dim = 64
         self.img_ch = 3
         self.con_ch = 1
@@ -49,8 +49,6 @@ class itemGAN:
                                          metrics=['accuracy'])
         self.shape_discriminator.trainable = False
         self.color_discriminator.trainable = False
-        # self.generator.compile(optimizer=self.g_optimizer,
-        #                        loss=self.generator_loss)
 
         # -------------------------
         # Construct Computational
@@ -63,7 +61,7 @@ class itemGAN:
         color_input = Input(shape=self.img_shape)
 
         # By conditioning on B generate a fake version of A
-        self.generator = tf.keras.models.load_model('models')
+        # self.generator = tf.keras.models.load_model('models')
         fake = self.generator([img_input, con_input])
 
         valid_shape = self.shape_discriminator([fake, con_input])
@@ -84,8 +82,8 @@ class itemGAN:
     def disc_loss(cls, labels, preds):
         # sign = (2 * K.mean(tf.reshape(labels, (-1, 64)), axis=1)) - 1
         # loss = K.mean(K.relu(1.0 - tf.math.multiply(sign, tf.reshape(preds, (-1, 64)))))
-        loss_real = K.mean(K.relu(1.0 - preds[:32]))
-        loss_fake = K.mean(K.relu(1.0 + preds[32:]))
+        loss_real = K.mean(K.relu(1.0 - preds[:64]))
+        loss_fake = K.mean(K.relu(1.0 + preds[64:]))
         return loss_real + loss_fake
 
     @classmethod
@@ -93,31 +91,29 @@ class itemGAN:
         # d_out = D(fake)
         return -K.mean(fake)
 
-    def train(self, epochs=1000, sample_interval=100):
+    def train(self, epochs=2000, sample_interval=100):
         start_time = datetime.datetime.now()
 
         # Adversarial loss ground truths
         valid = np.ones((self.batch_size, 8, 8, 1))
         fake = np.zeros((self.batch_size, 8, 8, 1))
 
-        icon_generator = IconGenerator(32)
+        icon_generator = IconGenerator(64)
+        for anchor, _, _, contour in icon_generator:
+            fixed_img = tf.identity(anchor)
+            fixed_contour = tf.identity(contour)
+            break
+
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         summary_writer = tf.summary.create_file_writer(f'./logs/{current_time}')
         n_minibatches = len(icon_generator)
         for epoch in range(epochs):
             for i, inputs in enumerate(icon_generator):
                 step = n_minibatches * epoch + i
-                if i > len(icon_generator):
+                if i >= len(icon_generator):
                     break
 
                 color_img, same_color_img, shape_img, contour = inputs
-                # fake = self.generator([color_img, contour])
-                # fake_color = tf.concat([fake, same_color_img], axis=-1)
-                # real_color = tf.concat([color_img, same_color_img], axis=-1)
-                # fake_shape = tf.concat([fake, contour], axis=-1)
-                # real_shape = tf.concat([shape_img, contour], axis=-1)
-
-                # Condition on B and generate a translated version
                 fake_img = self.generator.predict([color_img, contour])
 
                 # ---------------------
@@ -161,12 +157,21 @@ class itemGAN:
 
                 if step % sample_interval == 0:
                     print(f'Save samples at step: {step}')
-                    self.save_image(step, 'input-img', color_img)
-                    self.save_image(step, 'same-color-img', same_color_img)
-                    self.save_image(step, 'origin-of-contour', shape_img)
-                    self.save_image(step, 'contour', contour)
-                    self.save_image(step, 'fake', fake_img)
-                    self.generator.save(f'models', save_format='tf')
+                    fixed_fake = self.generator.predict([fixed_img, fixed_contour])
+                    grid_img = self.image_grid(fixed_fake)[0]
+
+                    grid_img = grid_img * 0.5 + 0.5
+                    grid_img = np.clip(grid_img * 255.0, 0.0, 255.0)
+                    grid_img = grid_img.astype(np.uint8)
+                    image = Image.fromarray(grid_img)
+                    image.save(f'samples2/{step}-grid-fake.png')
+
+                    # self.save_image(step, 'input-img', color_img)
+                    # self.save_image(step, 'same-color-img', same_color_img)
+                    # self.save_image(step, 'origin-of-contour', shape_img)
+                    # self.save_image(step, 'contour', contour)
+                    # self.save_image(step, 'fake', fake_img)
+                    self.generator.save(f'models3', save_format='tf')
                     with summary_writer.as_default():
                         tf.summary.image(f'{step}-color', color_img, max_outputs=64, step=step)
                         tf.summary.image(f'{step}-same-color', same_color_img,  max_outputs=64, step=step)
@@ -175,63 +180,13 @@ class itemGAN:
                         tf.summary.scalar('g_loss', g_loss[0], step=step)
                         tf.summary.scalar('d-acc', d_loss[1] * 100, step=step)
 
-                # d_color_loss = 0
-                # with tf.GradientTape() as tape:
-                #     d_out_color_real = self.color_discriminator([color_img, same_color_img])
-                #     d_out_color_fake = self.color_discriminator([fake, same_color_img])
-                #     d_color_loss = self.discriminator_loss(d_out_color_real, d_out_color_fake)
-                #     d_color_grads = tape.gradient(d_color_loss, self.color_discriminator.trainable_variables)
-                #     with summary_writer.as_default():
-                #         tf.summary.scalar('d-color-loss', d_color_loss, step=step)
-                #
-                #     self.d_optimizer.apply_gradients(
-                #         zip(d_color_grads, self.color_discriminator.trainable_variables))
-                #
-                # d_shape_loss = 0
-                # with tf.GradientTape() as tape:
-                #     d_out_shape_real = self.shape_discriminator([shape_img, contour])
-                #     d_out_shape_fake = self.shape_discriminator([fake, contour])
-                #     d_shape_loss = self.discriminator_loss(d_out_shape_real, d_out_shape_fake)
-                #     d_shape_grads = tape.gradient(d_shape_loss, self.shape_discriminator.trainable_variables)
-                #     with summary_writer.as_default():
-                #         tf.summary.scalar('d-shape-loss', d_shape_loss, step=step)
-                #
-                #     self.d_optimizer.apply_gradients(
-                #         zip(d_shape_grads, self.shape_discriminator.trainable_variables))
-                #
-                # g_loss = 0
-                # with tf.GradientTape() as tape:
-                #     fake = self.generator([color_img, contour])
-                #     # fake_color = tf.concat([fake, same_color_img], axis=-1)
-                #     # fake_shape = tf.concat([fake, contour], axis=-1)
-                #
-                #     d_out_color_fake = self.color_discriminator([fake, same_color_img])
-                #     d_out_shape_fake = self.shape_discriminator([fake, contour])
-                #     g_color_loss = self.generator_loss(self.color_discriminator, d_out_color_fake)
-                #     g_shape_loss = self.generator_loss(self.shape_discriminator, d_out_shape_fake)
-                #     g_loss = g_color_loss + g_shape_loss
-                #     g_grads = tape.gradient(g_loss, self.generator.trainable_variables)
-                #     with summary_writer.as_default():
-                #         tf.summary.scalar(f'g-shape-loss', g_shape_loss, step=step)
-                #         tf.summary.scalar(f'g-color-loss', g_color_loss, step=step)
-                #         tf.summary.scalar(f'g_loss', g_loss, step=step)
-                #     self.g_optimizer.apply_gradients(
-                #         zip(g_grads, self.generator.trainable_variables))
-                #
-                # print(f'[D-COLOR-LOSS] {d_color_loss} :: [D-SHAPE-LOSS] {d_shape_loss} :: [G-LOSS] {g_loss}')
-                #
-                # if step % sample_interval == 0:
-                #     print(f'Save samples at step: {step}')
-                #     self.save_image(step, 'input-img', color_img)
-                #     self.save_image(step, 'same-color-img', same_color_img)
-                #     self.save_image(step, 'origin-of-contour', shape_img)
-                #     self.save_image(step, 'contour', contour)
-                #     self.save_image(step, 'fake', fake)
-                #     self.generator.save(f'models', save_format='tf')
-                #     with summary_writer.as_default():
-                #         tf.summary.image(f'{step}-color', color_img, max_outputs=64, step=step)
-                #         tf.summary.image(f'{step}-same-color', same_color_img,  max_outputs=64, step=step)
-                #         tf.summary.image(f'{step}-fake', fake, max_outputs=64, step=step)
+    @classmethod
+    def image_grid(cls, x, size=8):
+        t = tf.unstack(x[:size * size], num=size * size, axis=0)
+        rows = [tf.concat(t[i * size:(i + 1) * size], axis=0)
+                for i in range(size)]
+        image = tf.concat(rows, axis=1)
+        return image[None]
 
     @classmethod
     def save_image(cls, step, name, arr):
@@ -332,5 +287,5 @@ class itemGAN:
 
 
 if __name__ == '__main__':
-    gan = itemGAN()
+    gan = ItemGAN()
     gan.train()
