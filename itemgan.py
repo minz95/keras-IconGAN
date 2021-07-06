@@ -164,14 +164,14 @@ class ItemGAN:
                     grid_img = np.clip(grid_img * 255.0, 0.0, 255.0)
                     grid_img = grid_img.astype(np.uint8)
                     image = Image.fromarray(grid_img)
-                    image.save(f'samples2/{step}-grid-fake.png')
+                    image.save(f'samples/{step}-grid-fake.png')
 
                     # self.save_image(step, 'input-img', color_img)
                     # self.save_image(step, 'same-color-img', same_color_img)
                     # self.save_image(step, 'origin-of-contour', shape_img)
                     # self.save_image(step, 'contour', contour)
                     # self.save_image(step, 'fake', fake_img)
-                    self.generator.save(f'models3', save_format='tf')
+                    self.generator.save(f'models', save_format='tf')
                     with summary_writer.as_default():
                         tf.summary.image(f'{step}-color', color_img, max_outputs=64, step=step)
                         tf.summary.image(f'{step}-same-color', same_color_img,  max_outputs=64, step=step)
