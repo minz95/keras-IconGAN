@@ -10,11 +10,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('model_path', type=str, default='models',
                         help='model path')
-    parser.add_argument('color_input', type=str, default='testdata/000004.png',
+    parser.add_argument('color_input', type=str, default='test_data/000004.png',
                         help='color image')
-    parser.add_argument('shape_input', type=str, default='testdata/bird.png',
+    parser.add_argument('shape_input', type=str, default='test_data/bird.png',
                         help='shape image')
-    parser.add_argument('output_path', type=str, default='testdata/output.png',
+    parser.add_argument('output_path', type=str, default='test_data/output.png',
                         help='test output image path')
 
     args = parser.parse_args()

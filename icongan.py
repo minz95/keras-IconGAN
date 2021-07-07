@@ -23,7 +23,7 @@ if gpus:
         print(e)
 
 
-class ItemGAN:
+class IconGAN:
     def __init__(self):
         self.batch_size = 64
         self.img_dim = 64
@@ -287,5 +287,5 @@ class ItemGAN:
 
 
 if __name__ == '__main__':
-    gan = ItemGAN()
+    gan = IconGAN()
     gan.train()
