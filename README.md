@@ -3,7 +3,7 @@
 **paper**: *Adversarial Colorization Of Icons Based On Structure And Color Conditions*
 : [link](https://arxiv.org/abs/1910.05253)
 
-conditional dual GAN model for icon generation
+conditional dual GAN model for icon colorization
 implemented with Keras
 
 [official implementation (pytorch)](https://github.com/jxcodetw/Adversarial-Colorization-Of-Icons-Based-On-Structure-And-Color-Conditions)
