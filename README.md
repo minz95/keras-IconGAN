@@ -57,5 +57,5 @@ python icongan.py
 
 ## How to test
 ```bash
-python test.py model_path=<model_path> color_input=<color_img_path> shape_input=<shape_img_path> output_path=<output_path>
+python test.py --model_path=<model_path> --color_input=<color_img_path> --shape_input=<shape_img_path> --output_path=<output_path>
 ```
